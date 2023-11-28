@@ -211,6 +211,7 @@ class BackendImp(override val wrapper: Backend)(implicit p: Parameters) extends 
   memScheduler.io.fromMem.get.sqCancelCnt := io.mem.sqCancelCnt
   memScheduler.io.fromMem.get.lqCancelCnt := io.mem.lqCancelCnt
   memScheduler.io.fromMem.get.stIssuePtr := io.mem.stIssuePtr
+  require(memScheduler.io.fromMem.get.memWaitUpdateReq.robIdx.length == io.mem.stIn.length)
   memScheduler.io.fromMem.get.memWaitUpdateReq.robIdx.zip(io.mem.stIn).foreach { case (sink, source) =>
     sink.valid := source.valid
     sink.bits  := source.bits.robIdx
@@ -424,36 +425,33 @@ class BackendImp(override val wrapper: Backend)(implicit p: Parameters) extends 
   }
 
   io.mem.redirect := ctrlBlock.io.redirect
-  private val memIssueUops =
-    Seq(io.mem.issueLda(0)) ++ Seq(io.mem.issueSta(0)) ++
-      io.mem.issueHylda ++ io.mem.issueHysta ++
-      Seq(io.mem.issueLda(1)) ++
-      io.mem.issueVldu ++
-      io.mem.issueStd
   io.mem.issueUops.zip(toMem.flatten).foreach { case (sink, source) =>
     sink.valid := source.valid
     source.ready := sink.ready
-    sink.bits.iqIdx         := source.bits.iqIdx
-    sink.bits.isFirstIssue  := source.bits.isFirstIssue
-    sink.bits.uop           := 0.U.asTypeOf(sink.bits.uop)
-    sink.bits.src           := 0.U.asTypeOf(sink.bits.src)
+    sink.bits.iqIdx              := source.bits.iqIdx
+    sink.bits.isFirstIssue       := source.bits.isFirstIssue
+    sink.bits.uop                := 0.U.asTypeOf(sink.bits.uop)
+    sink.bits.src                := 0.U.asTypeOf(sink.bits.src)
     sink.bits.src.zip(source.bits.src).foreach { case (l, r) => l := r}
-    sink.bits.deqPortIdx    := source.bits.deqLdExuIdx.getOrElse(0.U)
-    sink.bits.uop.fuType    := source.bits.fuType
-    sink.bits.uop.fuOpType  := source.bits.fuOpType
-    sink.bits.uop.imm       := source.bits.imm
-    sink.bits.uop.robIdx    := source.bits.robIdx
-    sink.bits.uop.pdest     := source.bits.pdest
-    sink.bits.uop.rfWen     := source.bits.rfWen.getOrElse(false.B)
-    sink.bits.uop.fpWen     := source.bits.fpWen.getOrElse(false.B)
-    sink.bits.uop.vecWen    := source.bits.vecWen.getOrElse(false.B)
-    sink.bits.uop.flushPipe := source.bits.flushPipe.getOrElse(false.B)
-    sink.bits.uop.pc        := source.bits.pc.getOrElse(0.U)
-    sink.bits.uop.lqIdx     := source.bits.lqIdx.getOrElse(0.U.asTypeOf(new LqPtr))
-    sink.bits.uop.sqIdx     := source.bits.sqIdx.getOrElse(0.U.asTypeOf(new SqPtr))
-    sink.bits.uop.ftqPtr    := source.bits.ftqIdx.getOrElse(0.U.asTypeOf(new FtqPtr))
-    sink.bits.uop.ftqOffset := source.bits.ftqOffset.getOrElse(0.U)
-    sink.bits.uop.debugInfo := source.bits.perfDebugInfo
+    sink.bits.deqPortIdx         := source.bits.deqLdExuIdx.getOrElse(0.U)
+    sink.bits.uop.fuType         := source.bits.fuType
+    sink.bits.uop.fuOpType       := source.bits.fuOpType
+    sink.bits.uop.imm            := source.bits.imm
+    sink.bits.uop.robIdx         := source.bits.robIdx
+    sink.bits.uop.pdest          := source.bits.pdest
+    sink.bits.uop.rfWen          := source.bits.rfWen.getOrElse(false.B)
+    sink.bits.uop.fpWen          := source.bits.fpWen.getOrElse(false.B)
+    sink.bits.uop.vecWen         := source.bits.vecWen.getOrElse(false.B)
+    sink.bits.uop.flushPipe      := source.bits.flushPipe.getOrElse(false.B)
+    sink.bits.uop.pc             := source.bits.pc.getOrElse(0.U)
+    sink.bits.uop.storeSetHit    := source.bits.storeSetHit.getOrElse(false.B)
+    sink.bits.uop.loadWaitStrict := source.bits.loadWaitStrict.getOrElse(false.B)
+    sink.bits.uop.ssid           := source.bits.ssid.getOrElse(0.U(SSIDWidth.W))
+    sink.bits.uop.lqIdx          := source.bits.lqIdx.getOrElse(0.U.asTypeOf(new LqPtr))
+    sink.bits.uop.sqIdx          := source.bits.sqIdx.getOrElse(0.U.asTypeOf(new SqPtr))
+    sink.bits.uop.ftqPtr         := source.bits.ftqIdx.getOrElse(0.U.asTypeOf(new FtqPtr))
+    sink.bits.uop.ftqOffset      := source.bits.ftqOffset.getOrElse(0.U)
+    sink.bits.uop.debugInfo      := source.bits.perfDebugInfo
   }
   io.mem.loadFastMatch := memScheduler.io.toMem.get.loadFastMatch.map(_.fastMatch)
   io.mem.loadFastImm := memScheduler.io.toMem.get.loadFastMatch.map(_.fastImm)
@@ -466,21 +464,18 @@ class BackendImp(override val wrapper: Backend)(implicit p: Parameters) extends 
     loadPcRead := ctrlBlock.io.memLdPcRead(i).data
     ctrlBlock.io.memLdPcRead(i).ptr := io.mem.issueLda(i).bits.uop.ftqPtr
     ctrlBlock.io.memLdPcRead(i).offset := io.mem.issueLda(i).bits.uop.ftqOffset
-    require(toMem.head(i).bits.ftqIdx.isDefined && toMem.head(i).bits.ftqOffset.isDefined)
   }
 
   io.mem.storePcRead.zipWithIndex.foreach { case (storePcRead, i) =>
     storePcRead := ctrlBlock.io.memStPcRead(i).data
     ctrlBlock.io.memStPcRead(i).ptr := io.mem.issueSta(i).bits.uop.ftqPtr
     ctrlBlock.io.memStPcRead(i).offset := io.mem.issueSta(i).bits.uop.ftqOffset
-    require(toMem(1)(i).bits.ftqIdx.isDefined && toMem(1)(i).bits.ftqOffset.isDefined)
   }
 
   io.mem.hyuPcRead.zipWithIndex.foreach( { case (hyuPcRead, i) =>
     hyuPcRead := ctrlBlock.io.memHyPcRead(i).data
     ctrlBlock.io.memHyPcRead(i).ptr := io.mem.issueHylda(i).bits.uop.ftqPtr
     ctrlBlock.io.memHyPcRead(i).offset := io.mem.issueHylda(i).bits.uop.ftqOffset
-    require(toMem(2)(i).bits.ftqIdx.isDefined && toMem(2)(i).bits.ftqOffset.isDefined)
   })
 
   ctrlBlock.io.robio.robHeadLsIssue := io.mem.issueUops.map(deq => deq.fire && deq.bits.uop.robIdx === ctrlBlock.io.robio.robDeqPtr).reduce(_ || _)
@@ -542,7 +537,7 @@ class BackendMemIO(implicit p: Parameters, params: BackendParams) extends XSBund
   val writebackVlda = Vec(params.VlduCnt, Flipped(DecoupledIO(new MemExuOutput(true))))
 
   val s3_delayed_load_error = Input(Vec(LoadPipelineWidth, Bool()))
-  val stIn = Input(Vec(params.StaCnt, ValidIO(new DynInst())))
+  val stIn = Input(Vec(params.StaExuCnt, ValidIO(new DynInst())))
   val memoryViolation = Flipped(ValidIO(new Redirect))
   val exceptionVAddr = Input(UInt(VAddrBits.W))
   val sqDeq = Input(UInt(log2Ceil(EnsbufferWidth + 1).W))
@@ -582,18 +577,18 @@ class BackendMemIO(implicit p: Parameters, params: BackendParams) extends XSBund
 
   // ATTENTION: The issue ports' sequence order should be the same as IQs' deq config
   private [backend] def issueUops: Seq[DecoupledIO[MemExuInput]] = {
-    Seq(issueLda(0)) ++ Seq(issueSta(0)) ++
+    issueSta ++
       issueHylda ++ issueHysta ++
-      Seq(issueLda(1)) ++
+      issueLda ++
       issueVldu ++
       issueStd
-  }
+  }.toSeq
 
   // ATTENTION: The writeback ports' sequence order should be the same as IQs' deq config
   private [backend] def writeBack: Seq[DecoupledIO[MemExuOutput]] = {
-    Seq(writebackLda(0)) ++ Seq(writebackSta(0)) ++
+    writebackSta ++
       writebackHyuLda ++ writebackHyuSta ++
-      Seq(writebackLda(1)) ++
+      writebackLda ++
       writebackVlda ++
       writebackStd
   }

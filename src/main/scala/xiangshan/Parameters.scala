@@ -209,6 +209,7 @@ case class XSCoreParameters
   EnableAtCommitMissTrigger: Boolean = true,
   EnableStorePrefetchSMS: Boolean = false,
   EnableStorePrefetchSPB: Boolean = false,
+  EnableHybridUnitReplay: Boolean = false,
   MMUAsidLen: Int = 16, // max is 16, 0 is not supported now
   ReSelectLen: Int = 7, // load replay queue replay select counter len
   iwpuParameters: WPUParameters = WPUParameters(
@@ -358,12 +359,14 @@ case class XSCoreParameters
 
     SchdBlockParams(Seq(
       IssueBlockParams(Seq(
-        ExeUnitParams("LDU0", Seq(LduCfg), Seq(IntWB(6, 0), VfWB(3, 0)), Seq(Seq(IntRD(12, 0)))),
         ExeUnitParams("STA0", Seq(StaCfg), Seq(), Seq(Seq(IntRD(3, 1)))),
       ), numEntries = IssueQueueSize, numEnq = 2),
       IssueBlockParams(Seq(
         ExeUnitParams("HYU0", Seq(HyldaCfg, HystaCfg, MouCfg), Seq(IntWB(5, 0), VfWB(5, 0)), Seq(Seq(IntRD(6, 0)))),
         ExeUnitParams("HYU1", Seq(FakeHystaCfg), Seq(), Seq()), // fake unit, used to create a new writeback port
+      ), numEntries = IssueQueueSize, numEnq = 2),
+      IssueBlockParams(Seq(
+        ExeUnitParams("LDU0", Seq(LduCfg), Seq(IntWB(6, 0), VfWB(3, 0)), Seq(Seq(IntRD(12, 0)))),
       ), numEntries = IssueQueueSize, numEnq = 2),
       IssueBlockParams(Seq(
         ExeUnitParams("LDU1", Seq(LduCfg), Seq(IntWB(7, 0), VfWB(4, 0)), Seq(Seq(IntRD(13, 0)))),
@@ -472,6 +475,7 @@ trait HasXSParameter {
   val HistoryLength = coreParams.HistoryLength
   val EnableGHistDiff = coreParams.EnableGHistDiff
   val EnableCommitGHistDiff = coreParams.EnableCommitGHistDiff
+  val EnableHybridUnitReplay = coreParams.EnableHybridUnitReplay
   val UbtbGHRLength = coreParams.UbtbGHRLength
   val UbtbSize = coreParams.UbtbSize
   val EnableFauFTB = coreParams.EnableFauFTB

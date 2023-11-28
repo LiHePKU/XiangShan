@@ -28,9 +28,10 @@ class IssueQueue(params: IssueBlockParams)(implicit p: Parameters) extends LazyM
   }
 }
 
-class IssueQueueStatusBundle(numEnq: Int) extends Bundle {
+class IssueQueueStatusBundle(numEnq: Int, numEntries: Int) extends Bundle {
   val empty = Output(Bool())
   val full = Output(Bool())
+  val validCnt = Output(UInt(log2Ceil(numEntries).W))
   val leftVec = Output(Vec(numEnq + 1, Bool()))
 }
 
@@ -57,7 +58,7 @@ class IssueQueueIO()(implicit p: Parameters, params: IssueBlockParams) extends X
   // Outputs
   val deq: MixedVec[DecoupledIO[IssueQueueIssueBundle]] = params.genIssueDecoupledBundle
   val wakeupToIQ: MixedVec[ValidIO[IssueQueueIQWakeUpBundle]] = params.genIQWakeUpSourceValidBundle
-  val status = Output(new IssueQueueStatusBundle(params.numEnq))
+  val status = Output(new IssueQueueStatusBundle(params.numEnq, params.numEntries))
   // val statusNext = Output(new IssueQueueStatusBundle(params.numEnq))
 
   val fromCancelNetwork = Flipped(params.genIssueDecoupledBundle)
@@ -606,6 +607,7 @@ class IssueQueueImp(override val wrapper: IssueQueue)(implicit p: Parameters, va
   io.enq.foreach(_.ready := !Cat(io.status.leftVec).orR || !enqHasValid) // Todo: more efficient implementation
   io.status.empty := !Cat(validVec).orR
   io.status.full := Cat(io.status.leftVec).orR
+  io.status.validCnt := PopCount(validVec)
 
   protected def getDeqLat(deqPortIdx: Int, fuType: UInt) : UInt = {
     Mux1H(fuLatencyMaps(deqPortIdx) map { case (k, v) => (k.U === fuType, v.U) })
@@ -828,6 +830,9 @@ class IssueQueueMemAddrImp(override val wrapper: IssueQueue)(implicit p: Paramet
   }
 
   io.deq.zipWithIndex.foreach { case (deq, i) =>
+    deq.bits.common.storeSetHit.foreach(_ := deqEntryVec(i).bits.payload.storeSetHit)
+    deq.bits.common.loadWaitStrict.foreach(_ := deqEntryVec(i).bits.payload.loadWaitStrict)
+    deq.bits.common.ssid.foreach(_ := deqEntryVec(i).bits.payload.ssid)
     deq.bits.common.sqIdx.get := deqEntryVec(i).bits.payload.sqIdx
     deq.bits.common.lqIdx.get := deqEntryVec(i).bits.payload.lqIdx
     deq.bits.common.ftqIdx.foreach(_ := deqEntryVec(i).bits.payload.ftqPtr)
