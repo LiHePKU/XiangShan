@@ -266,7 +266,7 @@ object Bundles {
   }
 
   class IssueQueueIQWakeUpBundle(exuIdx: Int, backendParams: BackendParams) extends IssueQueueWakeUpBaseBundle(backendParams.pregIdxWidth, Seq(exuIdx)) {
-    val loadDependency = Vec(backendParams.LduCnt + backendParams.HyuCnt, UInt(3.W))
+    val loadDependency = Vec(backendParams.LdExuCnt, UInt(3.W))
     def fromExuInput(exuInput: ExuInput, l2ExuVecs: Vec[UInt]): Unit = {
       this.rfWen := exuInput.rfWen.getOrElse(false.B)
       this.fpWen := exuInput.fpWen.getOrElse(false.B)
@@ -279,6 +279,13 @@ object Bundles {
       this.fpWen := exuInput.fpWen.getOrElse(false.B)
       this.vecWen := exuInput.vecWen.getOrElse(false.B)
       this.pdest := exuInput.pdest
+    }
+
+    def fromIssueUop(issueUop: MemExuInput): Unit = {
+      this.rfWen := issueUop.uop.rfWen
+      this.fpWen := issueUop.uop.fpWen
+      this.vecWen := issueUop.uop.vecWen
+      this.pdest := issueUop.uop.pdest
     }
   }
 

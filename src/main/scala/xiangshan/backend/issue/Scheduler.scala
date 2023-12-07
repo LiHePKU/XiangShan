@@ -89,7 +89,9 @@ class SchedulerIO()(implicit params: SchdBlockParams, p: Parameters) extends XSB
   val ldCancel = Vec(backendParams.LduCnt + backendParams.HyuCnt, Flipped(new LoadCancelIO))
 
   val memIO = if (params.isMemSchd) Some(new Bundle {
+    private def isVecSeq = params.issueBlockParams.map(_.exuBlockParams.map(_.fuConfigs.find(_.writeVecRf).isDefined)).flatten
     val lsqEnqIO = Flipped(new LsqEnqIO)
+    val issueUops = MixedVec(isVecSeq.map(isVector => Input(DecoupledIO(new MemExuInput(isVector)))))
   }) else None
   val fromMem = if (params.isMemSchd) Some(new Bundle {
     val ldaFeedback = Flipped(Vec(params.LduCnt, new MemRSFeedbackIO))
@@ -290,6 +292,11 @@ class SchedulerMemImp(override val wrapper: Scheduler)(implicit params: SchdBloc
   require(memAddrIQs.nonEmpty && stDataIQs.nonEmpty)
 
   io.toMem.get.loadFastMatch := 0.U.asTypeOf(io.toMem.get.loadFastMatch) // TODO: is still needed?
+
+  private val loadIssueUops = params.issueBlockParams.map(_.exuBlockParams).flatten.zip(io.memIO.get.issueUops).filter(_._1.hasLoadExu).unzip._2
+  private val loadIqIssueUops = issueQueues.filter(_.params.StdCnt == 0).map(_.asInstanceOf[IssueQueueMemAddrImp].io.memIO.get.loadIssueUops).flatten
+  require(loadIssueUops.length == loadIqIssueUops.length)
+  loadIqIssueUops.zip(loadIssueUops).foreach(x => x._1 := x._2)
 
   memAddrIQs.zipWithIndex.foreach { case (iq, i) =>
     iq.io.flush <> io.fromCtrlBlock.flush

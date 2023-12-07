@@ -124,9 +124,11 @@ class IssueQueueImp(override val wrapper: IssueQueue)(implicit p: Parameters, va
     newExuInput
   }
 
-  val wakeUpQueues: Seq[Option[MultiWakeupQueue[ExuInput, WakeupQueueFlush]]] = params.exuBlockParams.map { x => OptionWrapper(x.isIQWakeUpSource, Module(
-    new MultiWakeupQueue(new ExuInput(x), new WakeupQueueFlush, x.fuLatancySet, flushFunc, modificationFunc)
-  ))}
+  val wakeUpQueues: Seq[Option[MultiWakeupQueue[ExuInput, WakeupQueueFlush]]] = params.exuBlockParams.map { x =>
+    OptionWrapper(x.isIQWakeUpSource && !x.hasLoadExu, Module(
+      new MultiWakeupQueue(new ExuInput(x), new WakeupQueueFlush, x.fuLatancySet, flushFunc, modificationFunc)
+    ))
+  }
 
   val intWbBusyTableIn = io.wbBusyTableRead.map(_.intWbBusyTable)
   val vfWbBusyTableIn = io.wbBusyTableRead.map(_.vfWbBusyTable)
@@ -771,7 +773,8 @@ class IssueQueueMemBundle(implicit p: Parameters, params: IssueBlockParams) exte
     val stIssuePtr = Input(new SqPtr)
     val memWaitUpdateReq = Flipped(new MemWaitUpdateReq)
   }
-  val loadFastMatch = Output(Vec(params.LduCnt, new IssueQueueLoadBundle))
+  val loadFastMatch = Output(Vec(params.LdExuCnt, new IssueQueueLoadBundle))
+  val loadIssueUops = Input(Vec(params.LdExuCnt, DecoupledIO(new MemExuInput())))
 }
 
 class IssueQueueMemIO(implicit p: Parameters, params: IssueBlockParams) extends IssueQueueIO {
@@ -825,6 +828,18 @@ class IssueQueueMemAddrImp(override val wrapper: IssueQueue)(implicit p: Paramet
 
     entries.io.fromMem.get.memWaitUpdateReq := memIO.checkWait.memWaitUpdateReq
     entries.io.fromMem.get.stIssuePtr := memIO.checkWait.stIssuePtr
+  }
+
+  // load wakeup
+  val loadIssueUopsIter = memIO.loadIssueUops.iterator
+  io.wakeupToIQ.zip(params.exuBlockParams).zipWithIndex.foreach { case ((wakeup, param), i) =>
+    if (param.hasLoadExu) {
+      require(wakeUpQueues(i).isEmpty)
+      val issueUop = loadIssueUopsIter.next()
+      wakeup.valid := issueUop.fire && FuType.isLoad(issueUop.bits.uop.fuType)
+      wakeup.bits.fromIssueUop(issueUop.bits)
+      wakeup.bits.loadDependency.foreach(_ := 0.U) // this is correct for load only
+    }
   }
 
   io.deq.zipWithIndex.foreach { case (deq, i) =>

@@ -159,8 +159,7 @@ class BackendImp(override val wrapper: Backend)(implicit p: Parameters) extends 
   private val og1CancelOH: UInt = dataPath.io.og1CancelOH
   private val og0CancelOHFromDataPath: UInt = dataPath.io.og0CancelOH
   private val og0CancelOHFromCancelNet: UInt = cancelNetwork.io.out.og0CancelOH
-  private val og0CancelOHFromFinalIssue: UInt = Wire(chiselTypeOf(dataPath.io.og0CancelOH))
-  private val og0CancelOH: UInt = og0CancelOHFromDataPath | og0CancelOHFromCancelNet | og0CancelOHFromFinalIssue
+  private val og0CancelOH: UInt = og0CancelOHFromDataPath | og0CancelOHFromCancelNet
   private val cancelToBusyTable = dataPath.io.cancelToBusyTable
 
   ctrlBlock.io.fromTop.hartId := io.fromTop.hartId
@@ -225,6 +224,7 @@ class BackendImp(override val wrapper: Backend)(implicit p: Parameters) extends 
   memScheduler.io.fromDataPath.og1Cancel := og1CancelOH
   memScheduler.io.ldCancel := io.mem.ldCancel
   memScheduler.io.fromDataPath.cancelToBusyTable := cancelToBusyTable
+  memScheduler.io.memIO.get.issueUops := io.mem.issueUops
 
   vfScheduler.io.fromTop.hartId := io.fromTop.hartId
   vfScheduler.io.fromCtrlBlock.flush := ctrlBlock.io.toIssueBlock.flush
@@ -242,7 +242,7 @@ class BackendImp(override val wrapper: Backend)(implicit p: Parameters) extends 
   cancelNetwork.io.in.int <> intScheduler.io.toDataPath
   cancelNetwork.io.in.vf  <> vfScheduler.io.toDataPath
   cancelNetwork.io.in.mem <> memScheduler.io.toDataPath
-  cancelNetwork.io.in.og0CancelOH := og0CancelOHFromDataPath | og0CancelOHFromFinalIssue
+  cancelNetwork.io.in.og0CancelOH := og0CancelOHFromDataPath
   cancelNetwork.io.in.og1CancelOH := og1CancelOH
   intScheduler.io.fromCancelNetwork <> cancelNetwork.io.out.int
   vfScheduler.io.fromCancelNetwork <> cancelNetwork.io.out.vf
@@ -489,15 +489,6 @@ class BackendImp(override val wrapper: Backend)(implicit p: Parameters) extends 
   // mem io
   io.mem.lsqEnqIO <> memScheduler.io.memIO.get.lsqEnqIO
   io.mem.robLsqIO <> ctrlBlock.io.robio.lsq
-
-  private val intFinalIssueBlock = intExuBlock.io.in.flatten.toSeq.map(_ => false.B)
-  private val vfFinalIssueBlock = vfExuBlock.io.in.flatten.toSeq.map(_ => false.B)
-  private val memFinalIssueBlock = io.mem.issueUops.toSeq zip memExuBlocksHasLDU.flatten.toSeq map {
-    case (out, true) => RegNext(out.valid && !out.ready, false.B)
-    case (_, false) => false.B
-  }
-  println(s"[backend]: width of [int|vf|mem]FinalIssueBlock: ${intFinalIssueBlock.size}|${vfFinalIssueBlock.size}|${memFinalIssueBlock.size}")
-  og0CancelOHFromFinalIssue := VecInit(intFinalIssueBlock ++ vfFinalIssueBlock ++ memFinalIssueBlock).asUInt
 
   io.frontendSfence := fenceio.sfence
   io.frontendTlbCsr := csrio.tlb
